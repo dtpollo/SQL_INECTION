@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Demo de Inyección SQL (SQLi)</title>
+    <style>
+        body { font-family: 'Inter', sans-serif; margin: 40px; background-color: #f0f2f5; }
+        .container { max-width: 900px; margin: 0 auto; }
+        .header { margin-bottom: 20px; padding: 15px; background-color: #fff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+
+        /* Estilos de la caja principal */
+        .box { 
+            border: 1px solid #ddd; 
+            padding: 20px; 
+            min-width: 400px; 
+            margin-bottom: 40px; 
+            background-color: #ffffff; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            border-radius: 8px;
+        }
+        
+        /* Inputs y botones */
+        input { 
+            padding: 10px; 
+            margin: 5px 0 15px 0; 
+            width: 95%; 
+            border: 1px solid #ccc; 
+            border-radius: 4px;
+        }
+        button { 
+            padding: 10px 15px; 
+            color: white; 
+            border: none; 
+            cursor: pointer; 
+            border-radius: 4px;
+            transition: background-color 0.3s;
+        }
+        
+        /* Estilos de botones */
+        .login-button { background-color: #007bff; }
+        .login-button:hover { background-color: #0056b3; }
+        .logout-button { background-color: #dc3545; margin-top: 10px;}
+        .logout-button:hover { background-color: #c82333; }
+        
+        .mode-button { 
+            background-color: #ffc107; 
+            color: #333; 
+            margin-bottom: 20px;
+            font-weight: bold;
+        }
+        .mode-button:hover { background-color: #e0a800; }
+
+        /* Estilos dinámicos para indicar el modo */
+        .vulnerable-mode { border-left: 5px solid #dc3545; } /* Rojo */
+        .safe-mode { border-left: 5px solid #28a745; } /* Verde */
+
+        /* Resultados */
+        .result-success { color: #28a745; font-weight: bold; }
+        .result-failure { color: #dc3545; font-weight: bold; }
+        
+        /* Estilos de búsqueda de producto más realistas */
+        #results {
+            list-style: none;
+            padding: 0;
+            margin-top: 15px;
+        }
+        .product-item { 
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #eee; 
+            padding: 10px 0; 
+        }
+        .product-name { font-weight: bold; color: #333; flex-grow: 1; }
+        .product-price { 
+            font-weight: 600; 
+            color: #007bff; 
+            margin-left: 20px; 
+            min-width: 80px; 
+            text-align: right;
+        }
+
+        h2 { 
+            border-bottom: 2px solid #ccc; 
+            padding-bottom: 5px; 
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="header">
+        <h1 class="text-2xl font-bold">Estado de Sesión: <span id="userStatus" class="result-failure">No Logeado</span></h1>
+        <p id="welcomeMessage" style="font-style: italic;"></p>
+    </div>
+
+    <h2 id="modeTitle">Login (MODO VULNERABLE)</h2>
+    <button id="toggleButton" class="mode-button" onclick="toggleSecurityMode()">Cambiar a Modo Seguro (Mitigación)</button>
+    <p>Usuario de prueba: <code>admin</code> | Contraseña: <code>admin123</code></p>
+
+    <!-- CONTENEDOR DE LOGIN DINÁMICO -->
+    <div class="box vulnerable-mode" id="loginBox">
+        <!-- Campos de Login (Visibles al inicio) -->
+        <div id="loginForm">
+            <input id="user" type="text" placeholder="username">
+            <input id="pass" type="password" placeholder="password">
+            <button class="login-button" onclick="attemptLogin()">Login</button>
+        </div>
+        <!-- Botón de Logout (Visible después de logear) -->
+        <button id="logoutButton" class="logout-button" onclick="logout()" style="display: none;">Logout</button>
+        
+        <p id="loginResult" style="margin-top: 20px;">¡La concatenación SQL está ACTIVA!</p>
+    </div>
+
+    <div style="height: 10px;"></div>
+
+    <h2>Búsqueda de Productos</h2>
+    <p>Escriba un término de búsqueda (ej: `Laptop`). Pruebe una inyección SQL para extraer datos de usuarios (ej: `' OR 1=1 UNION SELECT id, username, password FROM users -- `)</p>
+    <div class="box">
+        <input id="search" type="text" placeholder="search item...">
+        <button class="login-button" onclick="searchProduct()">Search</button>
+        <ul id="results"></ul>
+    </div>
+</div>
+
+<script>
+// VARIABLES GLOBALES
+const API_URL = "http://localhost:5000";
+let LOGIN_ENDPOINT = "/vuln-login"; 
+let SEARCH_ENDPOINT = "/vuln-search";
+let currentMode = 'VULN';
+let currentUser = null; // Almacena el usuario logeado
+
+// --- FUNCIÓN PARA ACTUALIZAR EL ESTADO DE LA UI ---
+function updateUI(username = null) {
+    const statusElement = document.getElementById('userStatus');
+    const welcomeElement = document.getElementById('welcomeMessage');
+    const loginForm = document.getElementById('loginForm');
+    const logoutButton = document.getElementById('logoutButton');
+
+    currentUser = username;
+
+    if (currentUser) {
+        // Estado Logeado
+        statusElement.innerText = 'Logeado';
+        statusElement.className = 'result-success';
+        welcomeElement.innerText = `¡Bienvenido, ${currentUser}!`;
+        loginForm.style.display = 'none';
+        logoutButton.style.display = 'block';
+        document.getElementById("user").value = '';
+        document.getElementById("pass").value = '';
+    } else {
+        // Estado No Logeado
+        statusElement.innerText = 'No Logeado';
+        statusElement.className = 'result-failure';
+        welcomeElement.innerText = '';
+        loginForm.style.display = 'block';
+        logoutButton.style.display = 'none';
+    }
+}
+
+// --- FUNCIÓN PARA LOGOUT ---
+function logout() {
+    updateUI(null);
+    document.getElementById("loginResult").innerText = "Sesión cerrada. Inicie sesión de nuevo.";
+}
+
+// --- FUNCIÓN PARA CAMBIAR EL MODO DE SEGURIDAD ---
+function toggleSecurityMode() {
+    // Asegurarse de que el usuario haga logout al cambiar de modo
+    logout(); 
+    
+    const box = document.getElementById('loginBox');
+    const title = document.getElementById('modeTitle');
+    const result = document.getElementById('loginResult');
+    const button = document.getElementById('toggleButton');
+
+    if (currentMode === 'VULN') {
+        // Cambiar a modo SEGURO
+        currentMode = 'SAFE';
+        LOGIN_ENDPOINT = "/safe-login"; 
+        SEARCH_ENDPOINT = "/safe-search";
+        title.innerText = "Login (MODO SEGURO/MITIGADO)";
+        button.innerText = "Cambiar a Modo Vulnerable (Ataque)";
+        box.classList.remove('vulnerable-mode');
+        box.classList.add('safe-mode');
+        result.innerText = "¡Los endpoints están PARAMETRIZADOS! El ataque no funcionará.";
+    } else {
+        // Cambiar a modo VULNERABLE
+        currentMode = 'VULN';
+        LOGIN_ENDPOINT = "/vuln-login"; 
+        SEARCH_ENDPOINT = "/vuln-search";
+        title.innerText = "Login (MODO VULNERABLE)";
+        button.innerText = "Cambiar a Modo Seguro (Mitigación)";
+        box.classList.remove('safe-mode');
+        box.classList.add('vulnerable-mode');
+        result.innerText = "¡La concatenación SQL está ACTIVA! Intente la inyección.";
+    }
+}
+
+// --- FUNCIÓN PRINCIPAL DE LOGIN ---
+async function attemptLogin() {
+    let username = document.getElementById("user").value;
+    let password = document.getElementById("pass").value;
+    let resultElement = document.getElementById("loginResult");
+    
+    // Validar campos
+    if (!username || !password) {
+        resultElement.innerText = "Por favor, introduzca usuario y contraseña.";
+        resultElement.className = "result-failure";
+        return;
+    }
+
+    resultElement.innerText = `Intentando conexión a ${API_URL}${LOGIN_ENDPOINT}...`;
+    resultElement.className = "";
+
+    try {
+        let res = await fetch(API_URL + LOGIN_ENDPOINT, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({username, password})
+        });
+
+        if (res.status === 404) {
+            resultElement.innerText = `Error 404: La ruta ${LOGIN_ENDPOINT} no existe en la API.`;
+            resultElement.className = "result-failure";
+            return;
+        }
+
+        let data = await res.json();
+        
+        resultElement.innerText = data.message;
+
+        // Revisar si el login fue exitoso (busca mensajes de éxito en ambas rutas)
+        if (res.ok && (data.message.includes("successful") || data.message.includes("Login OK"))) {
+             resultElement.className = "result-success";
+             // Si el login es exitoso, actualizamos la UI con el nombre de usuario
+             updateUI(username);
+        } else {
+             resultElement.className = "result-failure";
+             updateUI(null); // Asegura que el estado sea "No Logeado"
+        }
+
+    } catch (error) {
+        console.error('Fetch Error (Network/CORS):', error);
+        resultElement.innerText = "Error de CONEXIÓN. Revise la consola del navegador para detalles.";
+        resultElement.className = "result-failure";
+    }
+}
+
+// --- FUNCIÓN DE BÚSQUEDA ---
+async function searchProduct() {
+    let q = document.getElementById("search").value;
+    let out = document.getElementById("results");
+    
+    // Clear previous results
+    out.innerHTML = "";
+    
+    // Check if the query is empty
+    if (!q) {
+        out.innerHTML = `<li class="result-failure">Por favor, introduzca un término de búsqueda.</li>`;
+        return;
+    }
+
+    out.innerHTML = `Buscando en ${currentMode} mode...`;
+    
+    try {
+        let res = await fetch(API_URL + SEARCH_ENDPOINT + "?q=" + encodeURIComponent(q));
+        
+        if (res.status === 404) {
+            out.innerHTML = `<li class="result-failure">Error 404: La ruta ${SEARCH_ENDPOINT} no existe en la API.</li>`;
+            return;
+        } else if (!res.ok) {
+             let errorText = await res.text();
+             out.innerHTML = `<li class="result-failure">Error en la API (${res.status}): ${errorText.substring(0, 100)}...</li>`;
+             return;
+        }
+
+        let data = await res.json();
+        
+        out.innerHTML = "";
+
+        if (Array.isArray(data) && data.length > 0) {
+            data.forEach(item => {
+                let li = document.createElement("li");
+                li.className = "product-item";
+                
+                // Si la inyección funciona, item.price será la contraseña del usuario.
+                // Si la búsqueda es normal, es el precio del producto.
+                const valueLabel = item.price.toString().includes('$') ? 'Precio' : 'Contraseña/Valor';
+                
+                li.innerHTML = `
+                    <span class="product-name">${item.name}</span> 
+                    <span class="text-sm text-gray-500">ID: ${item.id}</span>
+                    <span class="product-price">${valueLabel}: ${item.price}</span>
+                `;
+                out.appendChild(li);
+            });
+        } else {
+            out.innerHTML = `<li class="result-failure">No se encontraron resultados para "${q}".</li>`;
+        }
+
+    } catch (error) {
+        out.innerHTML = `<li class="result-failure">Error al conectar con la API para buscar.</li>`;
+    }
+}
+
+// Inicializar la UI al cargar la página
+document.addEventListener('DOMContentLoaded', () => {
+    updateUI(null); // Asegurar que inicie en estado "No Logeado"
+});
+</script>
+
+</body>
+</html>

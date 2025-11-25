@@ -1,25 +1,36 @@
 services:
-
   db:
-    image: mysql:8
+    build:
+      context: ./db
+    container_name: sql_db
     environment:
-      MYSQL_ROOT_PASSWORD: ldtroya04
-    volumes:
-      - ./db:/docker-entrypoint-initdb.d
-    restart: always
-
-  web:
-    image: nginx:alpine
-    volumes:
-      - ./web:/usr/share/nginx/html
+      MYSQL_ROOT_PASSWORD: rootpassword
+      MYSQL_DATABASE: testdb
     ports:
-      - "8080:80"
-    depends_on:
-      - api
+      - "3306:3306"
+    volumes:
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 3s
+      timeout: 5s
+      retries: 5
 
   api:
-    build: ./api
-    ports:
-      - "5000:5000"
+    build:
+      context: ./backend
+    container_name: sql_api
+    # ✅ CORREGIDO: Dependencia simple para evitar el error de salud prematura
     depends_on:
       - db
+    ports:
+      - "5000:5000"
+
+  web:
+    build:
+      context: ./frontend
+    container_name: sql_web
+    depends_on:
+      - api
+    ports:
+      - "8080:80"

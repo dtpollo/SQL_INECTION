@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>SQLi Demo Page</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; background-color: #f0f2f5; }
+        .box { 
+            border: 1px solid #ddd; 
+            padding: 20px; 
+            width: 400px; 
+            margin-bottom: 40px; 
+            background-color: #ffffff; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            border-radius: 8px;
+        }
+        input { 
+            padding: 10px; 
+            margin: 5px 0 15px 0; 
+            width: 95%; 
+            border: 1px solid #ccc; 
+            border-radius: 4px;
+        }
+        button { 
+            padding: 10px 15px; 
+            background-color: #007bff; 
+            color: white; 
+            border: none; 
+            cursor: pointer; 
+            border-radius: 4px;
+            transition: background-color 0.3s;
+        }
+        button:hover { background-color: #0056b3; }
+        .result-success { color: #28a745; font-weight: bold; }
+        .result-failure { color: #dc3545; font-weight: bold; }
+        .product-item { 
+            list-style-type: none; 
+            border-bottom: 1px dashed #eee; 
+            padding: 8px 0; 
+            margin-left: -40px;
+            word-wrap: break-word;
+        }
+        .product-name { font-weight: bold; color: #333; }
+        h2 { 
+            border-bottom: 2px solid #ccc; 
+            padding-bottom: 5px; 
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+
+<h2>Login (Vulnerable)</h2>
+<p>Usuario de prueba: <code>admin</code> | Contraseña: <code>admin123</code></p>
+<div class="box">
+    <input id="user" type="text" placeholder="username">
+    <input id="pass" type="password" placeholder="password">
+    <button onclick="login()">Login</button>
+    <p id="loginResult"></p>
+</div>
+
+<h2>Búsqueda de Producto (Vulnerable)</h2>
+<p>Inyecta SQL para extraer datos sensibles.</p>
+<div class="box">
+    <input id="search" type="text" placeholder="search item...">
+    <button onclick="searchProduct()">Search</button>
+    <ul id="results"></ul>
+</div>
+
+<script>
+const API_URL = "http://localhost:5000";
+const LOGIN_ENDPOINT = "/vuln-login"; // <-- RUTA CORREGIDA
+
+async function login() {
+    let username = document.getElementById("user").value;
+    let password = document.getElementById("pass").value;
+    let resultElement = document.getElementById("loginResult");
+    
+    resultElement.innerText = "Intentando conexión a " + API_URL + LOGIN_ENDPOINT + "...";
+    resultElement.className = "";
+
+    try {
+        let res = await fetch(API_URL + LOGIN_ENDPOINT, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({username, password})
+        });
+
+        if (res.status === 404) {
+            resultElement.innerText = `Error 404: La ruta ${LOGIN_ENDPOINT} no existe en la API.`;
+            resultElement.className = "result-failure";
+        } else if (res.ok) {
+            let data = await res.json();
+            resultElement.innerText = data.message;
+            if (data.message.includes("successful")) {
+                 resultElement.className = "result-success";
+            } else {
+                 resultElement.className = "result-failure";
+            }
+        } else {
+            // Manejo de otros errores HTTP (como 500, o el error de DB que ahora envía 500)
+            let errorText = await res.text();
+            resultElement.innerText = `Error HTTP: API respondió con estado ${res.status}. Mensaje: ${errorText.substring(0, 100)}`;
+            resultElement.className = "result-failure";
+        }
+
+    } catch (error) {
+        // Manejo de errores de red/CORS (fetch fallido)
+        console.error('Fetch Error (Network/CORS):', error);
+        resultElement.innerText = "Error de CONEXIÓN. Revise la consola del navegador para detalles de CORS o la URL.";
+        resultElement.className = "result-failure";
+    }
+}
+
+async function searchProduct() {
+    let q = document.getElementById("search").value;
+    let out = document.getElementById("results");
+    const SEARCH_ENDPOINT = "/vuln-search?q=";
+    out.innerHTML = "Buscando...";
+    
+    try {
+        let res = await fetch(API_URL + SEARCH_ENDPOINT + encodeURIComponent(q));
+        
+        if (res.status === 404) {
+            out.innerHTML = `<li class="result-failure">Error 404: La ruta ${SEARCH_ENDPOINT} no existe en la API.</li>`;
+            return;
+        } else if (!res.ok) {
+             let errorData = await res.json();
+             out.innerHTML = `<li class="result-failure">Error en la API (${res.status}): ${errorData.message}</li>`;
+             return;
+        }
+
+        let data = await res.json();
+        
+        out.innerHTML = "";
+
+        if (Array.isArray(data) && data.length > 0) {
+            data.forEach(item => {
+                let li = document.createElement("li");
+                li.className = "product-item";
+                
+                // Formato que revela la inyección de datos de usuario:
+                li.innerHTML = `
+                    <span class="product-name">ID: ${item.id}</span> | 
+                    Nombre/Usuario: <strong>${item.name}</strong> | 
+                    Precio/Pass: <strong>${item.price}</strong>
+                `;
+                out.appendChild(li);
+            });
+        } else {
+            out.innerHTML = `<li class="result-failure">No se encontraron resultados o la respuesta fue inesperada.</li>`;
+        }
+
+    } catch (error) {
+        out.innerHTML = `<li class="result-failure">Error al conectar con la API para buscar.</li>`;
+    }
+}
+</script>
+
+</body>
+</html>

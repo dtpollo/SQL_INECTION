@@ -1,7 +1,6 @@
-CREATE DATABASE testdb;
+-- CREATE DATABASE testdb;
 USE testdb;
 
--- Users table for login bypass attack
 CREATE TABLE users (
     id INT AUTO_INCREMENT PRIMARY KEY,
     username VARCHAR(50),
@@ -9,11 +8,10 @@ CREATE TABLE users (
 );
 
 INSERT INTO users (username, password) VALUES
-('admin', 'ADmin#12$'),
-('juan', 'Google$'),
-('maria', 'MariaTheGrace');
+('admin', 'admin123'),
+('juan', '12345'),
+('maria', 'password');
 
--- Products table for UNION-based SQLi
 CREATE TABLE products (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(100),
