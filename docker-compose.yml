@@ -1,36 +1,57 @@
 services:
+  # ----------------------------------------------------
+  # 1. BASE DE DATOS (MySQL)
+  # ----------------------------------------------------
   db:
     build:
-      context: ./db
+      context: ./database
+      dockerfile: Dockerfile_db  # Asumo un nombre para evitar ambigüedad con otros Dockerfiles
     container_name: sql_db
     environment:
       MYSQL_ROOT_PASSWORD: rootpassword
       MYSQL_DATABASE: testdb
     ports:
       - "3306:3306"
-    volumes:
-      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    # Este healthcheck es crucial para que el servicio 'api' sepa cuándo conectarse
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 3s
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-prootpassword"]
+      interval: 5s
       timeout: 5s
       retries: 5
+      start_period: 20s # Esperar 20s antes de empezar a chequear
+    restart: always
 
+  # ----------------------------------------------------
+  # 2. API (Backend Flask)
+  # ----------------------------------------------------
   api:
     build:
       context: ./backend
+      dockerfile: Dockerfile_api # Asumo un nombre para evitar ambigüedad
     container_name: sql_api
-    # ✅ CORREGIDO: Dependencia simple para evitar el error de salud prematura
-    depends_on:
-      - db
     ports:
       - "5000:5000"
-
+    # ✅ CRÍTICO: Esperar a que 'db' esté completamente saludable antes de iniciar.
+    # Esto previene que Flask falle al intentar conectar prematuramente.
+    depends_on:
+      db:
+        condition: service_healthy 
+    restart: always
+    
+  # ----------------------------------------------------
+  # 3. WEB (Frontend Nginx)
+  # ----------------------------------------------------
   web:
     build:
       context: ./frontend
+      dockerfile: Dockerfile_web # Asumo un nombre para evitar ambigüedad
     container_name: sql_web
-    depends_on:
-      - api
     ports:
+      # Exponer el puerto 8080 al host, que es el que usa el frontend en index.html (localhost:5000)
+      # Nota: Flask usa localhost:5000, pero la comunicacion interna se hace a 'api:5000'
       - "8080:80"
+    # Se recomienda que el frontend espere al backend para asegurar que la API esté disponible.
+    depends_on:
+      api:
+        condition: service_started
+    restart: always
